@@ -135,9 +135,8 @@ BEGIN
     IF (v_timestamp = 'stop') THEN
         IF (v_time <= v_end_time) THEN
             IF (v_time >= 1) THEN
-                v_res := v_population / (1 + (v_constant_of_integration * exp(- 1 * (v_growth_rate * v_time))));
                 INSERT INTO patient (local_time, amount)
-                    VALUES (v_time, v_res);
+                    VALUES (v_time, v_population / (1 + (v_constant_of_integration * exp(- 1 * (v_growth_rate * v_time)))));
             END IF;
         END IF;
     END IF;
@@ -189,7 +188,7 @@ INSERT INTO variable (_timestamp, _time)
     VALUES ('stop', 0);
 
 INSERT INTO parameter (_population, growth_rate, end_time, constant_of_integration)
-    VALUES (500000, 0.916891, 6, 2499);
+    VALUES (500000, 0.916891, 100, 2499);
 
 CREATE TRIGGER time_passes_trigger
     AFTER UPDATE OF _timestamp ON variable
@@ -210,4 +209,9 @@ CREATE TRIGGER patient_amount_grows_1
     AFTER INSERT ON patient
     FOR EACH ROW
     EXECUTE PROCEDURE patient_amount_grows_1 ();
+
+UPDATE
+    "variable"
+SET
+    _timestamp = 'next';
 
