@@ -1,45 +1,3 @@
-CREATE FUNCTION calculate_constant_of_integration (IN growth_rate float, IN _population float, OUT constant_of_integration float
-)
-AS $$
-DECLARE
-    v_time float;
-    v_patient_amount float;
-BEGIN
-    SELECT
-        _time
-    FROM
-        variable INTO v_time;
-    SELECT
-        amount
-    FROM
-        patient INTO v_patient_amount;
-    constant_of_integration := (exp(growth_rate * v_time) * (_population - v_patient_amount)) / v_patient_amount;
-END;
-$$
-LANGUAGE plpgsql
-IMMUTABLE;
-
-CREATE FUNCTION calculate_growth_rate (IN _constant_of_integration float, IN _population float, OUT growth_rate float
-)
-AS $$
-DECLARE
-    v_time float;
-    v_patient_amount float;
-BEGIN
-    SELECT
-        _time
-    FROM
-        variable INTO v_time;
-    SELECT
-        amount
-    FROM
-        patient INTO v_patient_amount;
-    growth_rate := ln(((_population - v_patient_amount) / (v_patient_amount * constant_of_integration)) / v_time);
-END;
-$$
-LANGUAGE plpgsql
-IMMUTABLE;
-
 CREATE FUNCTION time_passes_trigger ()
     RETURNS TRIGGER
     AS $time_passes_trigger$
@@ -76,11 +34,31 @@ LANGUAGE plpgsql;
 CREATE FUNCTION time_passes_1_trigger ()
     RETURNS TRIGGER
     AS $time_passes_1_trigger$
+DECLARE
+    v_timestamp text;
+    v_time float;
+    v_end_time float;
 BEGIN
-    UPDATE
-        variable
-    SET
-        _timestamp = 'stop';
+    SELECT
+        _timestamp
+    FROM
+        variable INTO v_timestamp;
+    SELECT
+        _time
+    FROM
+        variable INTO v_time;
+    SELECT
+        end_time
+    FROM
+        parameter INTO v_end_time;
+    IF (v_timestamp = 'next') THEN
+        IF (v_time <= v_end_time) THEN
+            UPDATE
+                variable
+            SET
+                _timestamp = 'stop';
+        END IF;
+    END IF;
     RETURN NULL;
 END;
 $time_passes_1_trigger$
@@ -119,11 +97,11 @@ BEGIN
     SELECT
         constant_of_integration
     FROM
-        parameter INTO v_constant_of_integration;
+        variable INTO v_constant_of_integration;
     SELECT
         growth_rate
     FROM
-        parameter INTO v_growth_rate;
+        variable INTO v_growth_rate;
     SELECT
         local_time
     FROM
@@ -208,11 +186,11 @@ BEGIN
     SELECT
         constant_of_integration
     FROM
-        parameter INTO v_constant_of_integration;
+        variable INTO v_constant_of_integration;
     SELECT
         growth_rate
     FROM
-        parameter INTO v_growth_rate;
+        variable INTO v_growth_rate;
     SELECT
         local_time
     FROM
@@ -234,7 +212,7 @@ BEGIN
                     id DESC
                 LIMIT 1;
                 UPDATE
-                    parameter
+                    variable
                 SET
                     constant_of_integration = ((v_population - v_patient_amount) / v_patient_amount);
             END IF;
@@ -249,7 +227,7 @@ BEGIN
                     id DESC
                 LIMIT 1;
                 UPDATE
-                    parameter
+                    variable
                 SET
                     growth_rate = (- ln(((v_population - v_patient_amount) / (v_patient_amount * v_constant_of_integration)))) / v_time;
             END IF;
@@ -263,12 +241,27 @@ LANGUAGE plpgsql;
 CREATE FUNCTION patient_amount_arrives_1 ()
     RETURNS TRIGGER
     AS $patient_amount_arrives_1$
+DECLARE
+    v_timestamp text;
+    v_time float;
 BEGIN
-    UPDATE
-        variable
-    SET
-        _timestamp = 'next';
-    RETURN NULL;
+    SELECT
+        _timestamp
+    FROM
+        variable INTO v_timestamp;
+    SELECT
+        _time
+    FROM
+        variable INTO v_time;
+    IF (v_timestamp = 'stop') THEN
+        IF (v_time < 2) THEN
+            UPDATE
+                variable
+            SET
+                _timestamp = 'next';
+            RETURN NULL;
+        END IF;
+    END IF;
 END;
 $patient_amount_arrives_1$
 LANGUAGE plpgsql;
@@ -276,31 +269,28 @@ LANGUAGE plpgsql;
 CREATE TABLE patient (
     id serial PRIMARY KEY,
     local_time float NOT NULL DEFAULT 0,
-    amount float NOT NULL DEFAULT 0,
-    created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP
+    amount float NOT NULL DEFAULT 0
 );
 
 CREATE TABLE variable (
     id serial PRIMARY KEY,
     _timestamp text NOT NULL,
     _time float NOT NULL,
-    created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP
+    growth_rate float NOT NULL,
+    constant_of_integration float NOT NULL
 );
 
 CREATE TABLE parameter (
     id serial PRIMARY KEY,
     _population float NOT NULL,
-    end_time float NOT NULL,
-    created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    growth_rate float NOT NULL,
-    constant_of_integration float NOT NULL
+    end_time float NOT NULL
 );
 
-INSERT INTO parameter (_population, growth_rate, end_time, constant_of_integration)
-    VALUES (500000, 0, 100, 0);
+INSERT INTO parameter (_population, end_time)
+    VALUES (500000, 100);
 
-INSERT INTO variable (_timestamp, _time)
-    VALUES ('', 0);
+INSERT INTO variable (_timestamp, _time, growth_rate, constant_of_integration)
+    VALUES ('', 0, 0, 0);
 
 CREATE TRIGGER time_passes_trigger
     AFTER UPDATE OF _timestamp ON variable
@@ -328,12 +318,12 @@ CREATE TRIGGER patient_amount_arrives
     EXECUTE PROCEDURE patient_amount_arrives ();
 
 CREATE TRIGGER patient_amount_arrives_1
-    AFTER UPDATE OF constant_of_integration ON parameter
+    AFTER UPDATE OF constant_of_integration ON variable
     FOR EACH ROW
     EXECUTE PROCEDURE patient_amount_arrives_1 ();
 
 CREATE TRIGGER patient_amount_arrives_1_
-    AFTER UPDATE OF growth_rate ON parameter
+    AFTER UPDATE OF growth_rate ON variable
     FOR EACH ROW
     EXECUTE PROCEDURE patient_amount_arrives_1 ();
 
